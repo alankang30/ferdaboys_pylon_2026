@@ -47,8 +47,9 @@ To install the simulator alone in a single workspace:
 mkdir ros2_ws/src
 cd ros2_ws/src
 git clone https://github.com/CogniPilot/cyecca.git
-git clone https://github.com/alankang30/ferdaboys_pylon_2026.git
-git clone https://github.com/wsribunma/cub_description.git 
+git clone https://github.com/alankang30/auav_pylon_2026.git
+git clone https://github.com/wsribunma/cub_description.git
+cp -r ~/pylon-racing/src/pylon_2026_world/ ~/ros2_ws/src/
 cd ..
 colcon build --symlink-install
 ```
