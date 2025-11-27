@@ -44,20 +44,14 @@ First install dependencies and install simulator. This is automatically installe
 To install the simulator alone in a single workspace:
 
 ```
-mkdir src
-cd src
+mkdir ros2_ws/src
+cd ros2_ws/src
 git clone https://github.com/CogniPilot/cyecca.git
 git clone https://github.com/wsribunma/auav_pylon_2026.git
 git clone https://github.com/wsribunma/cub_description.git 
 cd ..
 colcon build --symlink-install
 ```
-
-Pip install all requirements using
-```
-pip install -r requirements.txt
-```
-I'd recommend using a venv.
 
 Source the workspace
 ```
