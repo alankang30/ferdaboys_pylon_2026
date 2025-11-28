@@ -19,8 +19,10 @@ from auav_pylon_2026.cross_tracker_nav_sample import *
 def wrap(x):
     return (x % 1) - 1
 
+#(30, 5.0, 5),
 
-# ## SIM
+#Base:
+"""
 alt = 7.0
 control_point = [
     (-10, -5, alt),
@@ -30,6 +32,22 @@ control_point = [
     (30, 5.0, alt),
     (10, 5, alt),
     (-10, -5, alt),
+]
+"""
+# ## SIM
+alt = 7.0
+control_point = [
+    (-10, 0, alt),
+    (-30.0, -10, alt),
+    (-30, -27.0, 6.5),
+
+    (0, -40, 5.5),
+
+    (30.00, -33.0, 5.5),
+    (25.00, 0, 5),
+    
+    (10, 0, 6),
+    (-10, 0, alt),
 ]  # Rectangle Circuit Full Facility, const altitude
 
 # Get coordinates for reference line
