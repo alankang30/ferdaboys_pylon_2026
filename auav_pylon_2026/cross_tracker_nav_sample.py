@@ -26,7 +26,7 @@ class XTrack_NAV_lookAhead:
         self.v_min_horz = (
             0.5  # minimum horizontal velocity m/s enforce to prevent stall
         )
-        self.v_cruise = 10.0  # cruise airspeed (scaled)
+        self.v_cruise = 10.0 # cruise airspeed (scaled)
         self.wpt_rad = 3.0  # allowable error from target waypoint (m)
 
         self.phi_threshold = 12 #phi threshold in degrees

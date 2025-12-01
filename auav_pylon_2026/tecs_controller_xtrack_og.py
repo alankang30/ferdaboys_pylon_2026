@@ -73,10 +73,6 @@ class TECSControl_cub:
 
         self.mass = self.param.mass
         self.weight = self.mass * self.g
-
-        self.lookahead_time_s = 2.0  # seconds to look ahead along path
-        self.lookahead_min_m = 2.0  # never look ahead less than this distance
-        self.lookahead_max_m = 20.0  # cap look-ahead to prevent cutting corners
         
         print(f"[TECSControl] Gains reloaded from: {gain_path}")
 
@@ -208,20 +204,6 @@ class TECSControl_cub:
         self.throttle_cmd = np.clip(ref_thrust / self.thr_max, 0.0 ,1.0) # This bypasses the throttle and assume throttle level is the thrust percentage
 
         # #-------------------Lateral Heading Control using WP_NAV-------------------#
-        V_speed_horz = max(np.linalg.norm([vx_est, vy_est]), 1e-3)
-        """L1 = np.clip(
-            V_speed_horz * self.lookahead_time_s,
-            self.lookahead_min_m,
-            self.lookahead_max_m,
-        )"""
-
-        L1 = 12
-
-        V = np.hypot(vx_est, vy_est)
-
-         
-
-
         chi     = np.arctan2(vy_est, vx_est) # current ground course track angle
         chi_ref = r_heading                  # navigation desired heading
         chi_err = _wrap_pi(chi_ref-chi)*-1
@@ -230,26 +212,8 @@ class TECSControl_cub:
 
         chi_dot_des = self.param.k_chi * chi_err  # desired yaw rate to correct heading error
         Vg = max(V_est, 0.05) #ground speed, avoid div by zero
-        
+        phi_des = np.arctan2(Vg * chi_dot_des , self.g) # Balmer, "Modelling and Control of a Fixed-wing UAV for Landings on Mobile Landing Platforms" (eqn 3.3)
 
-        pref = (x + L1 * np.cos(chi_ref), y + L1 * np.sin(chi_ref))
-
-        rx = pref[0] - x
-        ry = pref[1] - y
-
-        chi_los = np.atan2(ry, rx)
-
-        eta = _wrap_pi(chi_los - chi)
-
-        a_cmd = 2.0 * V * V / L1 * np.sin(eta)
-
-
-
-
-
-
-
-        phi_des = -np.arctan2(a_cmd , self.g) # Balmer, "Modelling and Control of a Fixed-wing UAV for Landings on Mobile Landing Platforms" (eqn 3.3)
         phi_des = float(np.clip(phi_des, -self.phi_lim, self.phi_lim)) 
         dphi_max = self.phi_dot_lim * self.dt
         phi_des = np.clip(phi_des - self._phi_cmd, -dphi_max, dphi_max) + self._phi_cmd

@@ -52,12 +52,30 @@ control_point = [
     
     (-10, 1.2, alt),
 ] """
-# ## SIM
+
+# fastest waypoints with default tecs and dubins tracking
+""" 
 alt = 7.0
 control_point = [
     (-10, 0, alt),
     (-30.0, -10, alt),
     (-30, -27.0, 6.5),
+
+    (0, -40, 5.5),
+
+    (30.00, -33.0, 5.5),
+    (25.00, 0, 5),
+    
+    (10, 0, 6),
+    (-10, 0, alt),
+]
+"""
+# ## SIM
+alt = 7.0
+control_point = [
+    (-10, 0, alt),
+    (-28.0, -10, alt),
+    (-28, -27.0, 6.5),
 
     (0, -40, 5.5),
 
