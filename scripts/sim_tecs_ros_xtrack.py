@@ -507,6 +507,7 @@ class PIDPublisher(Node):
                         int(self.time / self.dt), self.ref_data, self.actual_data
                     )
                 )
+                self.throttle = 0.7
                 self.current_WP_ind = self.wpt_planner.check_arrived(
                     along_track_err, v_array, verbose=False
                 )
