@@ -61,7 +61,7 @@ class XTrack_NAV_lookAhead:
             des_gamma = (
                 K_h * z_err / horz_dist_err
             )  # Alternatively, this can be calculated from vertical-track error
-            # des_gamma = np.arctan((K_h*z_err)/horz_dist_err) #Alternatively, this can be calculated from cross-track error
+            des_gamma = np.arctan((K_h*z_err)/horz_dist_err) #Alternatively, this can be calculated from cross-track error
 
         # # Compute along-track and cross-track error
         V_vector = np.array([Vx_speed, Vy_speed])

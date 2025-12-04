@@ -71,18 +71,18 @@ control_point = [
 ]
 """
 # ## SIM
-alt = 7.0
+alt = 5.0
 control_point = [
     (-10, 0, alt),
     (-28.0, -10, alt),
-    (-28, -27.0, 6.5),
+    (-28, -27.0, alt),
 
-    (0, -40, 5.5),
+    (0, -40, alt),
 
-    (30.00, -33.0, 5.5),
-    (25.00, 0, 5),
+    (30.00, -33.0, alt),
+    (25.00, 0, alt),
     
-    (10, 0, 6),
+    (10, 0, alt),
     (-10, 0, alt),
 ]
   # Rectangle Circuit Full Facility, const altitude
@@ -485,12 +485,19 @@ class PIDPublisher(Node):
                 )
 
                 ## Calculating Desired Acceleration based on desired velocity
-                if self.prev_v is None:
+                if (self.prev_v is None):
                     self.prev_v = self.v_est
-                K_V = 1.0
-                self.des_a = K_V * (
-                    des_v - np.abs(self.v_est)
-                )  # Desired Acceleration from current velocity
+
+                if ((self.des_a == None) or (self.prev_des_a == None)):
+                    K_V = 1.0
+                    self.des_a = K_V * (
+                    (des_v - np.abs(self.v_est)))
+                else:
+                    K_V = 1.0
+                    K_DV = 0
+                    self.des_a = K_V * (
+                        (des_v - np.abs(self.v_est)) 
+                    )  -  K_DV * np.abs(self.des_a - self.prev_des_a) # Desired Acceleration from current velocity
 
                 self.prev_des_a = self.des_a
                 self.prev_des_v = des_v
@@ -507,7 +514,7 @@ class PIDPublisher(Node):
                         int(self.time / self.dt), self.ref_data, self.actual_data
                     )
                 )
-                self.throttle = 0.7
+                self.throttle = 0.6
                 self.current_WP_ind = self.wpt_planner.check_arrived(
                     along_track_err, v_array, verbose=False
                 )
