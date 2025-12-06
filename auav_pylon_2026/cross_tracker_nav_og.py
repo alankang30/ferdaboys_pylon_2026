@@ -1,184 +1,718 @@
+#!/usr/bin/env python3
+import rclpy
+from rclpy.node import Node
+from rclpy.time import Time
+from geometry_msgs.msg import Twist, PoseStamped
+from nav_msgs.msg import Odometry, Path
+from sensor_msgs.msg import Joy
+from std_msgs.msg import Float32MultiArray, String
+from std_srvs.srv import Trigger
+from tf_transformations import euler_from_quaternion
+import casadi as ca
 import numpy as np
 
-######################
-# Waypoint Target Algorithm with cross-track flow field and Alongtrack switching modes
-######################
+from auav_pylon_2026.tecs_controller_xtrack_og import TECSControl_cub
+
+from auav_pylon_2026.cross_tracker_nav_og import *
 
 
-def angle_rad_wrapper(angle):
-    return (angle + np.pi) % (2 * np.pi) - np.pi
+def wrap(x):
+    return (x % 1) - 1
+
+#(30, 5.0, 5),
+
+#Base:
+"""
+alt = 7.0
+control_point = [
+    (-10, -5, alt),
+    (-30.0, -10, alt),
+    (-30, -40.0, alt),
+    (30.00, -30.0, alt),
+    (30, 5.0, alt),
+    (10, 5, alt),
+    (-10, -5, alt),
+]
+"""
+
+#safer waypoints:
+"""
+alt = 7.0
+
+control_point = [
+    (-10, 1, alt),
+    (-30.0, -10, alt),
+    (-30, -27.0, 6.5),
+
+    (0, -40, 5.5),
+
+    (30.00, -35.0, 5.5),
+    (26.50, 1.2, 5),
+    
+    
+    (-10, 1.2, alt),
+] """
+
+# fastest waypoints with default tecs and dubins tracking
+""" 
+alt = 7.0
+control_point = [
+    (-10, 0, alt),
+    (-30.0, -10, alt),
+    (-30, -27.0, 6.5),
+
+    (0, -40, 5.5),
+
+    (30.00, -33.0, 5.5),
+    (25.00, 0, 5),
+    
+    (10, 0, 6),
+    (-10, 0, alt),
+]
+"""
+#
+# ## SIM
+alt = 3.0
+# control_point = [
+#     (-10, 0, alt),
+#     (-29.0, -10, alt),
+    
+#     (-27, -27.0, alt),
+
+#     (0, -40, alt),
+
+#     (25.0, -34.0, alt),
+#     (16, 0, alt),
+    
+#     (4.0, 0, alt),
+#     (-10, 0, alt),
+    
+#     (-29.0, -10, alt),
+    
+#     (-27, -27.0, alt),
+
+#     (0, -40, alt),
+
+#     (25.0, -34.0, alt),
+#     (16, 0, alt),
+    
+#     (4.0, 0, alt),
+#     (-10, 0, alt),
+    
+#     (-40, 0, alt),
+    
+#     (-35, -27.0, alt),
+
+#     (0, -40, alt),
+
+#     (25.0, -34.0, alt),
+#     (16, 0, alt),
+    
+#     (4.0, 0, alt),
+#     (-10, 0, alt),
+# ]
+
+# control_point = [
+#     (-5, -10, alt),
+#     (-5, 10, alt),
+#     (10, 10, alt),
+#     (10, -15, alt),
+#     (2, -10, alt),
+#     (-5, -10, alt),    
+# ]
+
+# control_point = [
+#     (-5, -10, alt),
+#     (-5, 10, alt),
+#     (10, 10, alt),
+#     (10, -15, alt),
+#     (2, -10, alt),
+#     (-5, -10, alt),    
+# ]
+control_point = [
+    (-10, -11.5, alt),
+    (-10, 11.5, alt),
+    (20, 11.5, alt),
+    (20, -11.5, alt),
+    (-10, -11.5, alt),
+]
+control_point = [
+    (-8.5, -13, alt),
+    # (-6, 0, alt),
+    (-8.5, 11.5, alt),
+    (19.5, 11.5, alt),
+    (19.5, -13, alt),
+    (-8.5, -13, alt),
+]
+control_point = [
+    (-3.5, -13, alt),
+    # (-6, 0, alt),
+    (-3.5, 10.5, alt),
+    (4, 11, alt),
+    (11, 10.5, alt),
+    (11, -13, alt),
+    (4, -12, alt),
+    (-3.5, -13, alt),
+]
+    # (-5, 10, alt),
+    # (10, 10, alt),
+    # (10, -15, alt),
+    # (2, -10, alt),
+    # (-5, -10, alt),    
+
+  # Rectangle Circuit Full Facility, const altitude
+
+# Get coordinates for reference line
+ref_x_list = [point[0] for point in control_point]
+ref_y_list = [point[1] for point in control_point]
+ref_z_list = [point[2] for point in control_point]
 
 
-class XTrack_NAV_lookAhead:
-    def __init__(self, dt, waypoints, start_WP_ind):
-        self.dt = dt
+###### FILTER ######
+def _lpf(self, attr: str, new_value, alpha: float):
+    """
+    Exponential low-pass update for a single signal.
+    Creates/uses <attr>_est and <attr>_est_last attributes.
+    Returns the filtered estimate.
+    """
+    if not (0.0 <= alpha <= 1.0):
+        raise ValueError("alpha must be in [0, 1]")
+    last_name = f"{attr}_est_last"
+    est_name = f"{attr}_est"
 
-        ## CURRENT_WP index might need to be parsed from the class variable in "init" and cycle directly from ros script
-        self.current_WP_ind = start_WP_ind  # Current Active Next Waypoint Index
-        self.next_wpt = None  # Current Active Next Waypoint Coordinate
-        self.prev_wpt = (0, 0, 0)  # Previous Waypoint Coordinate
-        self.last_WP = len(waypoints) - 1  # Last Waypoint Index
-        self.current_pose_est = [0, 0, 0]  # Filtered pose position
-        self.waypoints_list = waypoints
+    last = getattr(self, last_name, None)
+    if last is None:
+        last = new_value  # initialize on first call
 
-        self.v_max_vert = 0.5  # maximum vertical velocity (positive up) m/s
-        self.v_max_horz = 0.55  # maximum horizontal velocity m/s
-        self.v_min_horz = (
-            0.5  # minimum horizontal velocity m/s enforce to prevent stall
+    est = alpha * new_value + (1.0 - alpha) * last
+    setattr(self, est_name, est)
+    setattr(self, last_name, est)
+    return est
+
+
+def _lpf_many(self, mapping: dict, alpha: float):
+    """
+    Batch low-pass updates. `mapping` is {attr_name: new_value}.
+    Each `attr_name` will use <name>_est / <name>_est_last.
+    """
+    for name, val in mapping.items():
+        self._lpf(name, val, alpha)
+
+
+##################
+
+
+class PIDPublisher(Node):
+    def __init__(self):
+        super().__init__("sports_cub_publisher")
+
+        # Set up Parameter
+        self.declare_parameter("mocap_vehicle_id", "/sim")
+        self.declare_parameter("frame_id", "/map")
+
+        # self.pub_control_input = self.create_publisher(Twist, '/cmd_vel', 10)
+        # self.pub_joy = self.create_publisher(Joy, '/auto_joy', 10)
+        self.pub_joy = self.create_publisher(
+            Joy,
+            self.get_parameter("mocap_vehicle_id").get_parameter_value().string_value
+            + "/auto_joy",
+            10,
         )
-        self.v_cruise = 10.0  # cruise airspeed (scaled)
-        self.wpt_rad = 3.0  # allowable error from target waypoint (m)
-
-        self.wpt_switching_distance = (
-            1.0  # Look ahead for x meters along track and jump to next waypoint
+        self.sub_mocap = self.create_subscription(
+            Odometry,
+            self.get_parameter("mocap_vehicle_id").get_parameter_value().string_value
+            + "/odom",
+            self.pose_cb,
+            10,
         )
-        self.path_distance_buf = 5.0  # Cross-track distance buffer
+        self.pub_ref_path = self.create_publisher(
+            Path,
+            self.get_parameter("mocap_vehicle_id").get_parameter_value().string_value
+            + "/ref_path",
+            10,
+        )
+        self.pub_path = self.create_publisher(
+            Path,
+            self.get_parameter("mocap_vehicle_id").get_parameter_value().string_value
+            + "/path_real",
+            10,
+        )
+        self.pub_ref_val = self.create_publisher(
+            Float32MultiArray,
+            self.get_parameter("mocap_vehicle_id").get_parameter_value().string_value
+            + "/ref_values",
+            10,
+        )
+        self.pub_actual_val = self.create_publisher(
+            Float32MultiArray,
+            self.get_parameter("mocap_vehicle_id").get_parameter_value().string_value
+            + "/actual_values",
+            10,
+        )
+        self.timer_path = self.create_timer(1, self.publish_ref_path)
+        self.timer = self.create_timer(0.01, self.pub_sports_cub)
+        self.x = 0.0
+        self.y = 0.0
+        self.z = 0.0
+        self.roll = 0.0
+        self.pitch = 0.0
+        self.yaw = 0.0
+        self.time = 0
+        self.dt = 0.01
+        self.tecs_control = TECSControl_cub(self.dt, "sim")
+        self.current_WP_ind = 0  # Starting WP index
+        self.last_WP_ind = 1  # Last Waypoint Index, this gets overwritten later
+        self.wpt_planner = XTrack_NAV_lookAhead(
+            self.dt, control_point, self.current_WP_ind
+        )
+        self.wpt_planner.path_distance_buf = 5.0  # 2.0
+        self.wpt_planner.wpt_switching_distance = 1.0  # 4.0
+        self.wpt_planner.v_cruise = 10.0  # 0.5
+        self.flight_mode = "takeoff"
+        self.pub_flight_mode = self.create_publisher(String, "flight_mode", 10)
+        self.takeoff_time = 0.0
+        self.x_list = []
+        self.y_list = []
+        self.z_list = []
+        self.roll_list = []
+        self.pitch_list = []
+        self.yaw_list = []
+        self.throttle = 0.7
+        self.rudder = 0.0
+        self.elev = 0.0  # elevator command
+        self.aileron = 0.0  # aileron command
+        self.trail_size = 200
+        self.x_est = None
+        self.prev_x = None
+        # self.x_est_last = None
+        self.y_est = None
+        self.prev_y = None
+        # self.y_est_last = None
+        self.z_est = None
+        self.prev_z = None
+        self.prev_roll = None
+        self.prev_pitch = None
+        self.prev_yaw = None
+        self.prev_v = None
+        self.roll_est = None
+        self.pitch_est = None
+        self.v_est = None
+        self.p_est = None
+        self.q_est = None
+        self.r_est = None  # Yaw rate
+        self.z_est = None  # Altitude filtering
+        self.yaw_est = None  # Heading filtering
+        self.vx_est = None
+        self.vy_est = None
+        self.vy_est_last = None
+        self.vz_est = None
+        self.gamma_est = None
+        self.gamma_est_last = None
+        self.vdot_est = None
+        self.end_cruise = False  # flight tag for end of cruise
+        self.des_a = None
+        self.prev_des_a = None
+        self.prev_des_v = None
+        self.ref_data = {
+            "des_v": 0.0,
+            "des_gamma": 0.0,
+            "des_heading": 0.0,
+            "des_a": 0.0,
+        }
+        self.actual_data = {
+            "x_est": 0.0,
+            "y_est": 0.0,
+            "z_est": 0.0,
+            "roll_est": 0.0,
+            "pitch_est": 0.0,
+            "yaw_est": 0.0,
+            "vx_est": 0.0,
+            "vy_est": 0.0,
+            "vz_est": 0.0,
+            "v_est": 0.0,
+            "gamma_est": 0.0,
+            "vdot_est": 0.0,
+            "p_est": 0.0,
+            "q_est": 0.0,
+            "r_est": 0.0,
+        }
+        self.prev_t = None
 
-        self.lookahead_time_s = 2.0  # seconds to look ahead along path
-        self.lookahead_min_m = 2.0  # never look ahead less than this distance
-        self.lookahead_max_m = 20.0  # cap look-ahead to prevent cutting corners
+    @staticmethod
+    def _angdiff(a, b):
+        return (a - b + np.pi) % (2 * np.pi) - np.pi
 
-    def get_desired_flight(
-        self, next_wpt, current_pose, Vx_speed, Vy_speed, verbose=False
-    ):
-        x_err = next_wpt[0] - current_pose[0]
-        y_err = next_wpt[1] - current_pose[1]
-        z_err = next_wpt[2] - current_pose[2]
+    def _lpf(self, name: str, new_value, alpha: float):
+        """
+        Exponential low-pass update for <name>.
+        Uses/creates attributes: <name>_est and <name>_est_last.
+        """
+        if not (0.0 <= alpha <= 1.0):
+            raise ValueError("alpha must be in [0, 1]")
+        last_name = f"{name}_est_last"
+        est_name = f"{name}_est"
 
-        horz_dist_err = np.sqrt(x_err**2 + y_err**2)  # Distance Error
+        last = getattr(self, last_name, None)
+        if last is None:
+            last = new_value  # initialize on first call
 
-        # Compute desired airspeed (velocity)
-        des_v = self.v_cruise  # fix desired velocity to be desired cruise speed
+        est = alpha * new_value + (1.0 - alpha) * last
+        setattr(self, est_name, est)
+        setattr(self, last_name, est)
+        return est
 
-        # Compute desired flight path angle
-        K_h = 3.0  # gain on hdot --> higher = steeper gamma
-        if horz_dist_err == 0:
-            des_gamma = 0
+    def _lpf_many(self, mapping: dict, alpha: float):
+        """Batch low-pass updates: mapping = {name: new_value}."""
+        for k, v in mapping.items():
+            self._lpf(k, v, alpha)
+
+    def reload_gains_callback(self, request, response):
+        # Trigger to call to reload param and gains
+        # ros2 service call /reload_gains std_srvs/srv/Trigger
+        try:
+            self.controller.reload_gains()
+            response.success = True
+            response.message = "Gains reloaded successfully."
+        except Exception as e:
+            self.get_logger().error(f"Failed to reload gains: {e}")
+            response.success = False
+            response.message = str(e)
+        return response
+
+    def pose_cb(self, msg: Odometry):
+        # Get time step
+        t = Time.from_msg(msg.header.stamp).nanoseconds * 1e-9
+        if self.prev_t is None:
+            self.prev_t = t - 0.01
+        dt = t - self.prev_t
+        if dt <= 0:
+            self.prev_t = t - 0.01
+        elif dt == 0:
+            dt = 0.01
+        self.dt = max(dt, 0.01)  # prevent dt = 0
+        self.prev_t = t
+
+        # Unpack raw data from topic
+        self.x = msg.pose.pose.position.x
+        self.y = msg.pose.pose.position.y
+        self.z = msg.pose.pose.position.z
+        q = msg.pose.pose.orientation
+        (self.roll, self.pitch, self.yaw) = euler_from_quaternion([q.x, q.y, q.z, q.w])
+
+        # Initialize on first time step
+        if self.prev_x is None:
+            self.prev_x, self.prev_y, self.prev_z = self.x, self.y, self.z
+            self.prev_roll, self.prev_pitch, self.prev_yaw = (
+                self.roll,
+                self.pitch,
+                self.yaw,
+            )
+            self.prev_speed = np.sqrt(self.x**2 + self.y**2 + self.z**2)
+
+        fc = 10.0  # Hz
+        alpha = np.exp(-2 * np.pi * fc * self.dt)
+
+        # Finite differences
+        vx_new = (self.x - self.prev_x) / self.dt
+        vy_new = (self.y - self.prev_y) / self.dt
+        vz_new = (self.z - self.prev_z) / self.dt
+        speed_new = np.sqrt(vx_new**2 + vy_new**2 + vz_new**2)
+
+        # Angular rates from successive Euler angles (wrap yaw)
+        p_new = self._angdiff(self.roll, self.prev_roll) / self.dt
+        q_new = self._angdiff(self.pitch, self.prev_pitch) / self.dt
+        r_new = self._angdiff(self.yaw, self.prev_yaw) / self.dt
+
+        eps = 1e-5
+        denom = max(speed_new, eps)
+        gamma_new = np.arcsin(
+            np.clip(vz_new / denom, -1.0, 1.0)
+        )  # Flight path angle (gamma): asin(vz / |v|)
+
+        vdot_new = (
+            speed_new - self.prev_speed
+        )  # / self.dt # Acceleration magnitutde diff
+
+        # Low-pass filer
+        self._lpf_many(
+            {
+                "x": self.x,
+                "y": self.y,
+                "z": self.z,
+                "roll": self.roll,
+                "pitch": self.pitch,
+                "yaw": self.yaw,
+                "vx": vx_new,
+                "vy": vy_new,
+                "vz": vz_new,
+                "v": speed_new,
+                "gamma": gamma_new,
+                "vdot": vdot_new,
+                "p": p_new,
+                "q": q_new,
+                "r": r_new,
+            },
+            alpha,
+        )
+
+        self.actual_data = {
+            "x_est": self.x_est,
+            "y_est": self.y_est,
+            "z_est": self.z_est,  # Position
+            "roll_est": self.roll_est,
+            "pitch_est": self.pitch_est,
+            "yaw_est": self.yaw_est,  # Euler Orientation
+            "vx_est": self.vx_est,
+            "vy_est": self.vy_est,
+            "vz_est": self.vz_est,  # Velocity
+            "v_est": self.v_est,
+            "gamma_est": self.gamma_est,
+            "vdot_est": self.vdot_est,
+            "p_est": self.p_est,
+            "q_est": self.q_est,
+            "r_est": self.r_est,  # Angular Rates
+        }
+
+        # Update history
+        self.prev_x, self.prev_y, self.prev_z = self.x, self.y, self.z
+        self.prev_roll, self.prev_pitch, self.prev_yaw = self.roll, self.pitch, self.yaw
+        self.prev_speed = self.v_est
+
+    def pub_sports_cub(self):
+        self.last_WP_ind = np.shape(control_point)[0]  # determine last waypoint
+
+        ######################################## FLIGHT MODE ####################################
+        flight_mode_msg = String()
+        if (self.z <= 1.0) and self.end_cruise == False:
+            new_mode = "takeoff"
         else:
-            des_gamma = (
-                K_h * z_err / horz_dist_err
-            )  # Alternatively, this can be calculated from vertical-track error
-            # des_gamma = np.arctan((K_h*z_err)/horz_dist_err) #Alternatively, this can be calculated from cross-track error
+            new_mode = "airborne"
 
-        # # Compute along-track and cross-track error
-        V_vector = np.array([Vx_speed, Vy_speed])
-        V_speed_horz = np.linalg.norm(V_vector)
-        x_est, y_est, _ = self.current_pose_est
+        if new_mode != self.flight_mode:
+            self.get_logger().info(
+                "Flight mode changed from: %s to %s" % (self.flight_mode, new_mode)
+            )
+            self.flight_mode = new_mode
+            flight_mode_msg.data = new_mode
 
-        gamma_p = np.arctan2(
-            self.next_wpt[1] - self.prev_wpt[1], self.next_wpt[0] - self.prev_wpt[0]
-        )  # Path Tangential angle
+        if flight_mode_msg.data == "":  # initialize flight mode
+            flight_mode_msg.data = self.flight_mode
 
-        xdot_t = V_speed_horz * np.cos(gamma_p)  # path-tracking velocity x
-        ydot_t = V_speed_horz * np.sin(gamma_p)  # path-tracking velocity y
-        x_t = xdot_t * self.dt
-        y_t = ydot_t * self.dt
+        self.pub_flight_mode.publish(flight_mode_msg)  # Publish Flight mode
 
-        path_vect = np.array(self.next_wpt) - np.array(
-            self.prev_wpt
-        )  # Vector between two waypoints
-        path_len = np.linalg.norm(path_vect)  # Distance between the two waypoints
-        path_angle = np.arctan2(
-            self.next_wpt[1] - self.prev_wpt[1], self.next_wpt[0] - self.prev_wpt[0]
-        )
-        unit_along_path = path_vect[:2] / path_len  # path unit vector
-        unit_normal = (
-            np.array([-path_vect[1], path_vect[0]]) / path_len
-        )  # unit normal to the path
+        ###########################################################################################
 
-        pose_vect = [x_est, y_est] - np.array(self.prev_wpt)[:2]
+        self.time += self.dt
 
-        # Along-track and cross-track components
-        along_track_err_w0 = np.dot(pose_vect, unit_along_path)  # from prev_wpt
-        along_track_err_w1 = max(
-            0.0, path_len - np.clip(along_track_err_w0, 0.0, path_len)
-        )
-        cross_track_err = np.dot(pose_vect, unit_normal)  # signed
+        if self.flight_mode == "takeoff":
+            self.takeoff_time += self.dt
 
-        # Dynamic look-ahead (speed-based)
-        V_speed_horz = max(np.linalg.norm([Vx_speed, Vy_speed]), 1e-3)
-        Ld_nom = np.clip(
-            V_speed_horz * self.lookahead_time_s,
-            self.lookahead_min_m,
-            self.lookahead_max_m,
-        )
-        Ld_eff = min(Ld_nom, along_track_err_w1)
+            # Throttle ramp with floor/ceiling
+          #  self.throttle = ca.fmin(1.0, ca.fmax(0.7, self.throttle + 2.0 * self.dt))
+            self.throttle =1
+            self.rudder = 0.0  # No yaw during takeoff
+            self.aileron = 0.0  # Wings-level during takeoff
 
-        # Vector-field heading: tangent + lateral correction by cross-track
-        des_heading = path_angle + np.arctan2(-cross_track_err, Ld_eff)
-        des_heading = (des_heading + np.pi) % (2 * np.pi) - np.pi
+            # Elevator schedule (taildragger hold-down, then smooth pitch-up)
+            v_to = 0.5  # takeoff speed threshold
+            e_down = -0.02  # elevator up while accelerating (tail on ground)
+            e_up = 0.15  # target pitch-up elevator
+            e_rate = 0.40  # max elevator change per second
+            if self.v_est == None:
+                self.v_est = 0.0  # Initialize V_est, assume start at stationary
 
-        if verbose == True:
-            print(
-                f"x_t : {x_t:.2f}\
-                    \ny_t : {y_t:.2f}\
-                    \nAlong-Track Error from w0: {along_track_err_w0:.2f}\
-                    \nAlong-Track Error from w1: {along_track_err_w1:.2f}\
-                    \nCross-Track Error : {cross_track_err:.2f}\
-                    \nPath Tangential Angle (Gamma_p): {gamma_p:0.2f}\
-                    \nDesired Heading : {des_heading:0.2f}"
+            self.elev = ca.if_else(
+                self.v_est < v_to, e_down, ca.fmin(e_up, self.elev + e_rate * self.dt)
             )
 
-        return des_v, des_gamma, des_heading, along_track_err_w1, cross_track_err
-
-    def wp_tracker(self, waypoints, x_est, y_est, z_est, V_array, verbose=False):
-        """
-        Accepts desired waypoints, iterate through waypoints
-        Waypoints: List and Waypoitn Types
-        Valid Waypoint type: takeoff, nav, descent, land
-
-        Accepts filtered positions (x,y,z)
-        """
-        # self.last_WP = len(waypoints) - 1# Last Waypoint index
-        if self.next_wpt == None:
-            self.next_wpt = waypoints[self.current_WP_ind]
-
-        self.current_pose_est = [x_est, y_est, z_est]  # Filtered position
-
-        self.next_wpt = waypoints[self.current_WP_ind]
-        if self.current_WP_ind != 0:
-            self.prev_wpt = waypoints[self.current_WP_ind - 1]
-
-        vx, vy, _ = V_array
-
-        # Compute Desired Speed, Desired Heading, Desired Glide Path
-        des_v, des_gamma, des_heading, along_track_err, cross_track_err = (
-            self.get_desired_flight(
-                self.next_wpt, self.current_pose_est, vx, vy, verbose=False
+        # Enforce Looping in cruise
+        if self.current_WP_ind == self.last_WP_ind:
+            self.current_WP_ind = 0  # go back to cruise altitude waypoint
+            self.end_cruise = False
+            self.wpt_planner = XTrack_NAV_lookAhead(
+                self.dt, control_point, self.current_WP_ind
             )
-        )
 
-        if verbose == True:
-            print(
-                f"Desired Velocity : {des_v:.2f}\
-                   \nDesired Flight Path Angle (Gamma) : {des_gamma:.2f}\
-                   \nAlong-Track Error : {along_track_err:.2f}\
-                   \nCross-Track Error : {cross_track_err:.2f}\
-                   \nDesired Heading : {des_heading:0.2f}\
-                   \nCurrent Waypoint Index: {self.current_WP_ind:0.0f}\
-                   "
+            # print(
+            #     "Continueing circuit...Returning to Waypoint %s" % (self.current_WP_ind)
+            # )
+
+        if self.flight_mode == "airborne":
+
+            if self.current_WP_ind == self.last_WP_ind:  # End Cruise
+                self.current_WP_ind = 0  # go back to cruise altitude waypoint
+                self.end_cruise = False
+                self.wpt_planner = XTrack_NAV_lookAhead(
+                    self.dt, control_point, self.current_WP_ind
+                )
+            else:
+                v_array = [self.vx_est, self.vy_est, self.vz_est]
+
+                des_v, des_gamma, des_heading, along_track_err, cross_track_err = (
+                    self.wpt_planner.wp_tracker(
+                        control_point,
+                        self.x_est,
+                        self.y_est,
+                        self.z_est,
+                        v_array,
+                        verbose=False,
+                    )
+                )
+
+                ## Calculating Desired Acceleration based on desired velocity
+                if (self.prev_v is None):
+                    self.prev_v = self.v_est
+
+                if ((self.des_a == None) or (self.prev_des_a == None)):
+                    K_V = 1.0
+                    self.des_a = K_V * (
+                    (des_v - np.abs(self.v_est)))
+                else:
+                    K_V = 1.0
+                    K_DV = 0
+                    self.des_a = K_V * (
+                        (des_v - np.abs(self.v_est)) 
+                    )  -  K_DV * np.abs(self.des_a - self.prev_des_a) # Desired Acceleration from current velocity
+
+                self.prev_des_a = self.des_a
+                self.prev_des_v = des_v
+
+                self.ref_data = {
+                    "des_v": des_v,
+                    "des_gamma": des_gamma,
+                    "des_heading": des_heading,
+                    "des_a": self.des_a,
+                }
+
+                self.aileron, self.elev, self.throttle, self.rudder = (
+                    self.tecs_control.compute_control(
+                        int(self.time / self.dt), self.ref_data, self.actual_data
+                    )
+                )
+                #self.throttle = 0.6
+                self.current_WP_ind = self.wpt_planner.check_arrived(
+                    along_track_err, v_array, verbose=False
+                )
+
+                self.get_logger().info(
+                    "Control Command: Aileron: %0.2f: Elevator: %0.2f; Throttle: %0.2f Rudder: %0.2f"
+                    % (self.aileron, self.elev, self.throttle, self.rudder)
+                )
+
+        # Publish Reference Data for Analysis
+        ref_val_msg = Float32MultiArray()
+        ref_val_msg.data = [
+            self.ref_data["des_v"],
+            self.ref_data["des_gamma"],
+            self.ref_data["des_heading"],
+            self.ref_data["des_a"],
+        ]
+        self.pub_ref_val.publish(ref_val_msg)
+
+        # Publish Actual Filtered Data for Analysis
+        actual_val_msg = Float32MultiArray()
+        actual_val_msg.data = [
+            self.actual_data["x_est"],
+            self.actual_data["y_est"],
+            self.actual_data["z_est"],
+            self.actual_data["roll_est"],
+            self.actual_data["pitch_est"],
+            self.actual_data["yaw_est"],
+            self.actual_data["vx_est"],
+            self.actual_data["vy_est"],
+            self.actual_data["vz_est"],
+            self.actual_data["v_est"],
+            self.actual_data["gamma_est"],
+            self.actual_data["vdot_est"],
+            self.actual_data["p_est"],
+            self.actual_data["q_est"],
+            self.actual_data["r_est"],
+        ]
+        self.pub_actual_val.publish(actual_val_msg)
+
+        ###########################################################################################
+        ########## SET CONTROL SIGNALS ###########
+
+        # Set Channel Messages
+        joy_msg = Joy()
+        joy_msg.axes = [0.0] * 5
+
+        # Cub Control PPM AETR
+        joy_msg.axes[0] = self.aileron
+        joy_msg.axes[1] = self.elev
+        joy_msg.axes[2] = self.throttle
+        joy_msg.axes[3] = self.rudder
+        joy_msg.axes[4] = 2000  # Force onboard stabilizing
+
+        self.pub_joy.publish(joy_msg)
+
+        # Append current position to the list for display
+        self.x_list.append(self.x)
+        self.y_list.append(self.y)
+        self.z_list.append(self.z)
+        self.roll_list.append(self.roll)
+        self.pitch_list.append(self.pitch)
+        self.yaw_list.append(self.yaw)
+
+        # Publish the trajectory of the vehicle
+        self.publish_path()
+        # self.pub_path.publish
+
+    def publish_ref_path(self):
+        msg_path = Path()
+        msg_path.header.frame_id = (
+            self.get_parameter("frame_id").get_parameter_value().string_value
+        )
+        msg_path.header.stamp = self.get_clock().now().to_msg()
+        for x, y, z in zip(ref_x_list, ref_y_list, ref_z_list):
+            pose = PoseStamped()
+            pose.header.stamp = self.get_clock().now().to_msg()
+            pose.header.frame_id = (
+                self.get_parameter("frame_id").get_parameter_value().string_value
             )
-        return des_v, des_gamma, des_heading, along_track_err, cross_track_err
+            pose.pose.position.x = float(x)
+            pose.pose.position.y = float(y)
+            pose.pose.position.z = float(z)
+            pose.pose.orientation.w = 1.0
+            pose.pose.orientation.x = 0.0
+            pose.pose.orientation.y = 0.0
+            pose.pose.orientation.z = 0.0
+            msg_path.poses.append(pose)
+        self.pub_ref_path.publish(msg_path)
 
-    def check_arrived(self, along_track_err, V_array, verbose=False):
-        # Lateral Waypoint checker
-        # Check based on along-track error
+    def publish_path(self):
+        msg_path = Path()
+        msg_path.header.frame_id = (
+            self.get_parameter("frame_id").get_parameter_value().string_value
+        )  #'qualisys'
+        msg_path.header.stamp = self.get_clock().now().to_msg()
+        if len(self.x_list) > self.trail_size:
+            del self.x_list[0]
+            del self.y_list[0]
+            del self.z_list[0]
+            del self.yaw_list[0]
+        for x, y, z, yaw in zip(self.x_list, self.y_list, self.z_list, self.yaw_list):
+            pose = PoseStamped()
+            pose.header.stamp = self.get_clock().now().to_msg()
+            pose.header.frame_id = (
+                self.get_parameter("frame_id").get_parameter_value().string_value
+            )  #'qualisys'
+            pose.pose.position.x = x
+            pose.pose.position.y = y
+            pose.pose.position.z = z
+            pose.pose.orientation.w = np.cos(yaw / 2)
+            pose.pose.orientation.z = np.sin(yaw / 2)
+            msg_path.poses.append(pose)
+        self.pub_path.publish(msg_path)
 
-        # Switch when remaining distance to w1 is less than the *current* look-ahead
 
-        Vg = max(np.linalg.norm(V_array[:2]), 1e-3)
-        Ld_nom = np.clip(
-            Vg * self.lookahead_time_s, self.lookahead_min_m, self.lookahead_max_m
-        )
-        threshold = max(self.wpt_switching_distance, Ld_nom)
+def main(args=None):
+    rclpy.init(args=args)
+    PID_publisher = PIDPublisher()
+    rclpy.spin(PID_publisher)
+    PID_publisher.destroy_node()
+    rclpy.shutdown()
 
-        # along_remaining is the distance to the next waypoint along the segment
-        if along_track_err < threshold:
-            self.current_WP_ind += 1
-            print(f"Waypoint reached, going to waypoint {self.current_WP_ind}...")
 
-        if verbose == True:
-            print(f"ALong track Error : {along_track_err:.2f}")
-            print(f"Updated Waypoint Index: {self.current_WP_ind}")
-
-        return self.current_WP_ind
+if __name__ == "__main__":
+    main()
