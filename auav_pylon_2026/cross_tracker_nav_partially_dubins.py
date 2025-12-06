@@ -26,7 +26,7 @@ class XTrack_NAV_lookAhead:
         self.v_min_horz = (
             0.5  # minimum horizontal velocity m/s enforce to prevent stall
         )
-        self.v_cruise = 10.0  # cruise airspeed (scaled)
+        self.v_cruise = 10.0 # cruise airspeed (scaled)
         self.wpt_rad = 3.0  # allowable error from target waypoint (m)
 
         self.phi_threshold = 12 #phi threshold in degrees
@@ -40,6 +40,7 @@ class XTrack_NAV_lookAhead:
         self.lookahead_time_s = 2.0  # seconds to look ahead along path
         self.lookahead_min_m = 2.0  # never look ahead less than this distance
         self.lookahead_max_m = 20.0  # cap look-ahead to prevent cutting corners
+        self.prev_gamma = 0.0
 
     def get_desired_flight(
         self, next_wpt, current_pose, Vx_speed, Vy_speed, verbose=False
@@ -61,7 +62,7 @@ class XTrack_NAV_lookAhead:
             des_gamma = (
                 K_h * z_err / horz_dist_err
             )  # Alternatively, this can be calculated from vertical-track error
-            # des_gamma = np.arctan((K_h*z_err)/horz_dist_err) #Alternatively, this can be calculated from cross-track error
+            des_gamma = np.arctan((K_h*z_err)/horz_dist_err) #Alternatively, this can be calculated from cross-track error
 
         # # Compute along-track and cross-track error
         V_vector = np.array([Vx_speed, Vy_speed])
@@ -187,6 +188,7 @@ class XTrack_NAV_lookAhead:
                     \nPath Tangential Angle (Gamma_p): {gamma_p:0.2f}\
                     \nDesired Heading : {des_heading:0.2f}"
             )
+       
 
         return des_v, des_gamma, des_heading, along_track_err_w1, cross_track_err
 
@@ -227,6 +229,8 @@ class XTrack_NAV_lookAhead:
                    \nCurrent Waypoint Index: {self.current_WP_ind:0.0f}\
                    "
             )
+
+ 
         return des_v, des_gamma, des_heading, along_track_err, cross_track_err
 
     def check_arrived(self, along_track_err, V_array, verbose=False):

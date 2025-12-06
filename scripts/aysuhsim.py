@@ -11,9 +11,13 @@ from tf_transformations import euler_from_quaternion
 import casadi as ca
 import numpy as np
 
-from auav_pylon_2026.tecs_controller_xtrack_sample import TECSControl_cub
+#from auav_pylon_2026.tecs_controller_xtrack_sample import TECSControl_cub
 
-from auav_pylon_2026.cross_tracker_nav_sample import *
+#from auav_pylon_2026.cross_tracker_nav_partially_dubins import *
+
+from auav_pylon_2026.aysuh_tecs import TECSControl_cub
+
+from auav_pylon_2026.ayush_cross import *
 
 
 def wrap(x):
@@ -70,47 +74,17 @@ control_point = [
     (-10, 0, alt),
 ]
 """
-#
 # ## SIM
-alt = 5.0
-control_point = [
-    (-10, 0, alt),
-    (-29.0, -10, alt),
-    
-    (-27, -27.0, alt),
-
-    (0, -40, alt),
-
-    (25.0, -34.0, alt),
-    (16, 0, alt),
-    
-    (4.0, 0, alt),
-    (-10, 0, alt),
-    
-    (-29.0, -10, alt),
-    
-    (-27, -27.0, alt),
-
-    (0, -40, alt),
-
-    (25.0, -34.0, alt),
-    (16, 0, alt),
-    
-    (4.0, 0, alt),
-    (-10, 0, alt),
-    
-    (-40, 0, alt),
-    
-    (-35, -27.0, alt),
-
-    (0, -40, alt),
-
-    (25.0, -34.0, alt),
-    (16, 0, alt),
-    
-    (4.0, 0, alt),
-    (-10, 0, alt),
-]
+alt = 7.0
+control_point = [    
+    (-5, -5, alt),
+    (-22, -7.5, alt),     #change this one to be -25 for the first coordinate to make it cut less closely...
+    (-22, -30.0, alt),
+    (25, -30.0, alt),
+    (22.5, -10, alt),
+    (11.5, -2.25, alt),
+    (-5, -5, alt),
+]  # Rectangle Circuit Full Facility, const altitude
   # Rectangle Circuit Full Facility, const altitude
 
 # Get coordinates for reference line
@@ -459,8 +433,8 @@ class PIDPublisher(Node):
             self.takeoff_time += self.dt
 
             # Throttle ramp with floor/ceiling
-          #  self.throttle = ca.fmin(1.0, ca.fmax(0.7, self.throttle + 2.0 * self.dt))
-            self.throttle =1
+            #self.throttle = ca.fmin(1.0, ca.fmax(0.7, self.throttle + 2.0 * self.dt))
+            self.throttle = 1
             self.rudder = 0.0  # No yaw during takeoff
             self.aileron = 0.0  # Wings-level during takeoff
 
@@ -499,16 +473,15 @@ class PIDPublisher(Node):
             else:
                 v_array = [self.vx_est, self.vy_est, self.vz_est]
 
-                des_v, des_gamma, des_heading, along_track_err, cross_track_err = (
+                des_gamma, des_heading, wp_err = (
                     self.wpt_planner.wp_tracker(
                         control_point,
                         self.x_est,
                         self.y_est,
                         self.z_est,
-                        v_array,
-                        verbose=False,
                     )
                 )
+                des_v = 10
 
                 ## Calculating Desired Acceleration based on desired velocity
                 if (self.prev_v is None):
@@ -542,7 +515,7 @@ class PIDPublisher(Node):
                 )
                 #self.throttle = 0.6
                 self.current_WP_ind = self.wpt_planner.check_arrived(
-                    along_track_err, v_array, verbose=False
+                    wp_err, v_array
                 )
 
                 self.get_logger().info(

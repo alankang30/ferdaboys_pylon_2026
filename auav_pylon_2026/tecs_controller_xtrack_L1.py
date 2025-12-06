@@ -215,7 +215,7 @@ class TECSControl_cub:
             self.lookahead_max_m,
         )"""
 
-        L1 = 10
+        L1 = 12
 
         V = np.hypot(vx_est, vy_est)
 

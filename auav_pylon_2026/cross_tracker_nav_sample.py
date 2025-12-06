@@ -158,6 +158,8 @@ class XTrack_NAV_lookAhead:
 
             des_v = self.v_cruise
 
+
+
         else:
 
             #if left shorter:

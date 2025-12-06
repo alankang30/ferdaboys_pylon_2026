@@ -13,7 +13,7 @@ import numpy as np
 
 from auav_pylon_2026.tecs_controller_xtrack_sample import TECSControl_cub
 
-from auav_pylon_2026.cross_tracker_nav_sample import *
+from auav_pylon_2026.cross_tracker_nav_partially_dubins import *
 
 
 def wrap(x):
@@ -70,45 +70,19 @@ control_point = [
     (-10, 0, alt),
 ]
 """
-#
 # ## SIM
 alt = 5.0
 control_point = [
     (-10, 0, alt),
-    (-29.0, -10, alt),
-    
-    (-27, -27.0, alt),
+    (-28.0, -10, alt),
+    (-28, -27.0, alt),
 
     (0, -40, alt),
 
-    (25.0, -34.0, alt),
-    (16, 0, alt),
+    (30.00, -33.0, alt),
+    (25.00, 0, alt),
     
-    (4.0, 0, alt),
-    (-10, 0, alt),
-    
-    (-29.0, -10, alt),
-    
-    (-27, -27.0, alt),
-
-    (0, -40, alt),
-
-    (25.0, -34.0, alt),
-    (16, 0, alt),
-    
-    (4.0, 0, alt),
-    (-10, 0, alt),
-    
-    (-40, 0, alt),
-    
-    (-35, -27.0, alt),
-
-    (0, -40, alt),
-
-    (25.0, -34.0, alt),
-    (16, 0, alt),
-    
-    (4.0, 0, alt),
+    (10, 0, alt),
     (-10, 0, alt),
 ]
   # Rectangle Circuit Full Facility, const altitude
@@ -459,8 +433,8 @@ class PIDPublisher(Node):
             self.takeoff_time += self.dt
 
             # Throttle ramp with floor/ceiling
-          #  self.throttle = ca.fmin(1.0, ca.fmax(0.7, self.throttle + 2.0 * self.dt))
-            self.throttle =1
+            self.throttle = ca.fmin(1.0, ca.fmax(0.7, self.throttle + 2.0 * self.dt))
+
             self.rudder = 0.0  # No yaw during takeoff
             self.aileron = 0.0  # Wings-level during takeoff
 

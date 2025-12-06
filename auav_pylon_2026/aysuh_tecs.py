@@ -73,10 +73,6 @@ class TECSControl_cub:
 
         self.mass = self.param.mass
         self.weight = self.mass * self.g
-
-        self.lookahead_time_s = 2.0  # seconds to look ahead along path
-        self.lookahead_min_m = 2.0  # never look ahead less than this distance
-        self.lookahead_max_m = 20.0  # cap look-ahead to prevent cutting corners
         
         print(f"[TECSControl] Gains reloaded from: {gain_path}")
 
@@ -113,13 +109,6 @@ class TECSControl_cub:
 
         thrust = float(np.clip(thrust_unsat, 0.0, self.thr_max))
 
-        if ((5-z) >=0):
-            thrust = 3.5  + 0.4 * abs(5-z) - 5*vz_est
-
-        else:
-            thrust = self.thr_max  - 0.3 * abs(5-z) - 3*vz_est
-        thrust = float(np.clip(thrust, 3.5, self.thr_max))
-
         # Thrust anti-windup
         # If at upper limit and error > 0, integrating would push further into sat -> freeze integral.
         # If at lower limit and error < 0, freeze integral.
@@ -138,10 +127,10 @@ class TECSControl_cub:
 
         #-------------------Desired Pitch-------------------#
         #Energy rate distribution term error
-        error_dist_term = (r_gamma - gamma_est) - (r_V_dot - vdot_est) / self.g
+        error_dist_term = (r_gamma - gamma_est) / self.g
 
         #Desired pitch
-        pitch_unsat = self.param.K_pitchi * self.error_dist_term_integral - self.param.K_pitchp * (gamma_est - vdot_est / self.g)
+        pitch_unsat = self.param.K_pitchi * self.error_dist_term_integral - self.param.K_pitchp * (gamma_est / self.g)
 
         pitch = float(np.clip(pitch_unsat, np.deg2rad(-20), np.deg2rad(20)))
 
@@ -207,56 +196,22 @@ class TECSControl_cub:
             self.error_pitch_integral = -self.param.pitch_integral_max
         
         #Control commands for elevator
-        elev_cmd = self.param.trim_elev + (self.param.K_elevp * error_pitch + self.param.K_elevi * self.error_pitch_integral) + self.param.K_q * error_q
+        elev_cmd = self.param.trim_elev + (self.param.K_elevp * error_pitch * 2 + self.param.K_elevi * 7 * self.error_pitch_integral) + self.param.K_q * error_q
         elev_cmd += ele_ff_phi # feed-forward elevator wrt to roll angle
         elev_cmd = np.clip(elev_cmd, -1,1 ) #Saturation
 
-        #-------------------Throttle Control-------------------#
-        self.throttle_cmd = np.clip(ref_thrust / self.thr_max, 0.5 ,0.8) # This bypasses the throttle and assume throttle level is the thrust percentage
 
         # #-------------------Lateral Heading Control using WP_NAV-------------------#
-        V_speed_horz = max(np.linalg.norm([vx_est, vy_est]), 1e-3)
-        """L1 = np.clip(
-            V_speed_horz * self.lookahead_time_s,
-            self.lookahead_min_m,
-            self.lookahead_max_m,
-        )"""
-
-        L1 = 12
-
-        V = np.hypot(vx_est, vy_est)
-
-         
-
-
         chi     = np.arctan2(vy_est, vx_est) # current ground course track angle
         chi_ref = r_heading                  # navigation desired heading
         chi_err = _wrap_pi(chi_ref-chi)*-1
         if abs(chi_err) < self.chi_deadband:   # small deadband to prevent sudden flip near wrap
             chi_err = 0.0
 
-        chi_dot_des = self.param.k_chi * chi_err  # desired yaw rate to correct heading error
+        chi_dot_des = self.param.k_chi * chi_err   # desired yaw rate to correct heading error
         Vg = max(V_est, 0.05) #ground speed, avoid div by zero
-        
+        phi_des = np.arctan2(Vg * chi_dot_des , self.g) # Balmer, "Modelling and Control of a Fixed-wing UAV for Landings on Mobile Landing Platforms" (eqn 3.3)
 
-        pref = (x + L1 * np.cos(chi_ref), y + L1 * np.sin(chi_ref))
-
-        rx = pref[0] - x
-        ry = pref[1] - y
-
-        chi_los = np.atan2(ry, rx)
-
-        eta = _wrap_pi(chi_los - chi)
-
-        a_cmd = 2.0 * V * V / L1 * np.sin(eta)
-
-
-
-
-
-
-
-        phi_des = -np.arctan2(a_cmd , self.g) # Balmer, "Modelling and Control of a Fixed-wing UAV for Landings on Mobile Landing Platforms" (eqn 3.3)
         phi_des = float(np.clip(phi_des, -self.phi_lim, self.phi_lim)) 
         dphi_max = self.phi_dot_lim * self.dt
         phi_des = np.clip(phi_des - self._phi_cmd, -dphi_max, dphi_max) + self._phi_cmd
@@ -303,9 +258,17 @@ class TECSControl_cub:
             ail_cmd = float(np.clip(ail_cmd, -1.0, 1.0))
 
 
+        #-------------------Throttle Control-------------------#
+        self.throttle_cmd = 1
+        self.throttle_cmd -= np.abs(roll/np.pi*2.25)
+
+
         # #-------------------Coordinated Turn Control-------------------#
         rud_cmd = 0
-        rud_cmd = np.clip(rud_cmd,-1,1)
+
+        if np.abs(ail_cmd) > 0.2:
+            rud_cmd = ail_cmd*0.7
+
         #Set history variables
         self.prev_x = x
         self.prev_y = y
