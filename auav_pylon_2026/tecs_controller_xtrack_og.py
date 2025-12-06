@@ -27,7 +27,7 @@ class TECSControl_cub:
         self.prev_ref_yaw = 0
         self.dt = dt
         self.g = 9.81
-        self.thr_max = 7.5 # 4.5 #Maximum Thrust
+        self.thr_max = 5.5 # 4.5 #Maximum Thrust
 
         self.args = args #Vehicle selection
         this_file = Path(__file__).resolve()
